@@ -2,8 +2,7 @@ package db
 
 import (
 	"github.com/hashicorp/go-multierror"
-	"github.com/jinzhu/gorm"
-	"github.com/sirupsen/logrus"
+	gorm "gorm.io/gorm"
 )
 
 type DB struct {
@@ -43,36 +42,41 @@ func (db *DB) Commit() error {
 	return db.write.Commit().Error
 }
 
-func (db *DB) RollbackUnlessCommitted() {
-	if err := db.write.RollbackUnlessCommitted().Error; err != nil {
-		logrus.WithError(err).Error("DB: RollbackUnlessCommitted")
-	}
-}
+// Deprecated in grom 2.0
+// func (db *DB) RollbackUnlessCommitted() {
+// 	if err := db.write.RollbackUnlessCommitted().Error; err != nil {
+// 		logrus.WithError(err).Error("DB: RollbackUnlessCommitted")
+// 	}
+// }
 
-func (db *DB) Tx(fn func(tx *DB) error) error {
-	tx := db.Begin()
-	defer tx.RollbackUnlessCommitted()
-
-	if err := fn(tx); err != nil {
-		return err
-	}
-
-	return tx.Commit()
+func (db *DB) Tx(fn func(tx *gorm.DB) error) error {
+	return db.write.Transaction(fn)
 }
 
 func (db *DB) Ping() error {
-	return db.write.DB().Ping()
+	database, err := db.write.DB()
+	if err != nil {
+		return err
+	}
+	return database.Ping()
 }
 
 func (db *DB) Close() error {
 	var merr *multierror.Error
-
-	if err := db.write.Close(); err != nil {
+	if write, err := db.write.DB(); err != nil {
 		merr = multierror.Append(merr, err)
+	} else {
+		if err := write.Close(); err != nil {
+			merr = multierror.Append(merr, err)
+		}
 	}
 
-	if err := db.read.Close(); err != nil {
+	if read, err := db.read.DB(); err != nil {
 		merr = multierror.Append(merr, err)
+	} else {
+		if err := read.Close(); err != nil {
+			merr = multierror.Append(merr, err)
+		}
 	}
 
 	return merr.ErrorOrNil()

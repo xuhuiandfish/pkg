@@ -3,11 +3,11 @@ package db
 import (
 	"errors"
 
-	"github.com/jinzhu/gorm"
+	gorm "gorm.io/gorm"
 )
 
 func IsErrorNotFound(err error) bool {
-	return gorm.IsRecordNotFoundError(err)
+	return errors.Is(err, gorm.ErrRecordNotFound)
 }
 
 // ErrOptimisticLock is returned by if the struct being

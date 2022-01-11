@@ -2,11 +2,15 @@ package db
 
 import (
 	"fmt"
+	"log"
+	"os"
+	"time"
 
-	_ "github.com/go-sql-driver/mysql"
-	"github.com/jinzhu/gorm"
-	_ "github.com/jinzhu/gorm/dialects/postgres"
-	_ "github.com/jinzhu/gorm/dialects/sqlite"
+	mysql "gorm.io/driver/mysql"
+	postgres "gorm.io/driver/postgres"
+	sqlite "gorm.io/driver/sqlite"
+	gorm "gorm.io/gorm"
+	gormlog "gorm.io/gorm/logger"
 )
 
 type Config struct {
@@ -30,7 +34,7 @@ func SqliteInMemory() Config {
 }
 
 func Connect(dialect, uri string) (*DB, error) {
-	coon, err := gorm.Open(dialect, uri)
+	coon, err := openWithDSN(dialect, uri)
 	if err != nil {
 		return nil, err
 	}
@@ -41,11 +45,24 @@ func Connect(dialect, uri string) (*DB, error) {
 	}, nil
 }
 
-func open(dialect, host string, port int, user, password, database, loc, sslmode string) (*gorm.DB, error) {
-	var uri string
+func gormLog() gormlog.Interface {
+	logger := gormlog.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
+		gormlog.Config{
+			SlowThreshold: time.Second,    // 慢 SQL 阈值
+			LogLevel:      gormlog.Silent, // Log level
+			Colorful:      true,           // 禁用彩色打印
+		},
+	)
+
+	return logger
+}
+
+func open(dialect string, host string, port int, user, password, database, loc, sslmode string) (*gorm.DB, error) {
+	var dsn string
 	switch dialect {
 	case "mysql":
-		uri = fmt.Sprintf("%s:%s@%s(%s:%d)/%s?parseTime=True&charset=utf8mb4,utf8&loc=%s",
+		dsn = fmt.Sprintf("%s:%s@%s(%s:%d)/%s?parseTime=True&charset=utf8mb4,utf8&loc=%s",
 			user,
 			password,
 			"tcp",
@@ -55,7 +72,7 @@ func open(dialect, host string, port int, user, password, database, loc, sslmode
 			loc,
 		)
 	case "postgres":
-		uri = fmt.Sprintf("host=%s port=%d user=%s dbname=%s password=%s sslmode=%s",
+		dsn = fmt.Sprintf("host=%s port=%d user=%s dbname=%s password=%s sslmode=%s",
 			host,
 			port,
 			user,
@@ -65,12 +82,30 @@ func open(dialect, host string, port int, user, password, database, loc, sslmode
 		)
 	case "sqlite3", "sqlite":
 		dialect = "sqlite3"
-		uri = host
+		dsn = host
 	default:
 		return nil, fmt.Errorf("unkonow db dialect: %s", dialect)
 	}
 
-	db, err := gorm.Open(dialect, uri)
+	return openWithDSN(dialect, dsn)
+}
+
+func openWithDSN(dialect, dsn string) (*gorm.DB, error) {
+	var dialector gorm.Dialector
+	switch dialect {
+	case "mysql":
+		dialector = mysql.Open(dsn)
+	case "postgres":
+		dialector = postgres.Open(dsn)
+	case "sqlite3", "sqlite":
+		dialector = sqlite.Open(dsn)
+	default:
+		return nil, fmt.Errorf("unkonow db dialect: %s", dialect)
+	}
+
+	db, err := gorm.Open(dialector, &gorm.Config{
+		Logger: gormLog(),
+	})
 	if err != nil {
 		return nil, err
 	}
